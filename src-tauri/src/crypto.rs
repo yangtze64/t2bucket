@@ -6,6 +6,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use hex;
 use rand::RngCore;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
