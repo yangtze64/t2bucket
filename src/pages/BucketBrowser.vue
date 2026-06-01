@@ -71,6 +71,18 @@ async function loadObjects() {
   objects.value = [...dirs, ...result.items];
 }
 
+function goBack() {
+  if (bucket.value) {
+    if (prefix.value) {
+      goUp();
+    } else {
+      router.push({ name: "browse-buckets", params: { connectionId: connectionId.value } });
+    }
+  } else {
+    router.push({ name: "home" });
+  }
+}
+
 function enterBucket(name: string) {
   router.push({ name: "browse-objects", params: { connectionId: connectionId.value, bucket: name } });
 }
@@ -244,7 +256,7 @@ function getFileIcon(obj: ObjectItem): string {
 <template>
   <div>
     <div class="page-header">
-      <button class="btn btn-ghost" @click="$router.back()">
+      <button class="btn btn-ghost" @click="goBack">
         <AppIcon name="arrow-left" :size="16" /> 返回
       </button>
       <h2 v-if="connection" class="page-title">{{ connection.name }}</h2>
