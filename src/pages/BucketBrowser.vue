@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, watch, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
 import AppIcon from "../components/AppIcon.vue";
@@ -192,6 +192,85 @@ async function createFolder() {
 
 const downloadingKeys = ref<Set<string>>(new Set());
 
+interface ContextMenuItem {
+  label: string;
+  icon: string;
+  action: () => void;
+  danger?: boolean;
+}
+
+const ctxMenu = ref(false);
+const ctxMenuX = ref(0);
+const ctxMenuY = ref(0);
+const ctxMenuItems = ref<ContextMenuItem[]>([]);
+
+function showContextMenu(e: MouseEvent, items: ContextMenuItem[]) {
+  e.preventDefault();
+  e.stopPropagation();
+  ctxMenuItems.value = items;
+  ctxMenuX.value = e.clientX;
+  ctxMenuY.value = e.clientY;
+  ctxMenu.value = true;
+}
+
+function closeContextMenu() {
+  ctxMenu.value = false;
+}
+
+function onDocClick() { closeContextMenu(); }
+function onDocKeydown(e: KeyboardEvent) { if (e.key === "Escape") closeContextMenu(); }
+
+onMounted(() => {
+  document.addEventListener("click", onDocClick);
+  document.addEventListener("keydown", onDocKeydown);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("click", onDocClick);
+  document.removeEventListener("keydown", onDocKeydown);
+});
+
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("已复制到剪贴板", "success");
+  } catch {
+    toast("复制失败", "error");
+  }
+}
+
+function onBucketCtx(e: MouseEvent, b: string) {
+  showContextMenu(e, [
+    { label: "浏览存储桶", icon: "bucket", action: () => enterBucket(b) },
+    { label: "复制桶名称", icon: "copy", action: () => copyToClipboard(b) },
+  ]);
+}
+
+function onFileCtx(e: MouseEvent, obj: ObjectItem) {
+  const items: ContextMenuItem[] = [];
+  if (!obj.isDir) {
+    items.push(
+      { label: "预览", icon: "eye", action: () => previewObject(obj.key) },
+      { label: "下载", icon: "download", action: () => downloadObject(obj.key) },
+    );
+  } else {
+    items.push({ label: "进入文件夹", icon: "folder", action: () => enterFolder(obj.key) });
+  }
+  items.push(
+    { label: "复制路径", icon: "copy", action: () => copyToClipboard(obj.key) },
+    { label: "删除", icon: "trash", action: () => deleteObject(obj.key, obj.isDir), danger: true },
+  );
+  showContextMenu(e, items);
+}
+
+function onEmptyCtx(e: MouseEvent) {
+  if (!bucket.value) return;
+  showContextMenu(e, [
+    { label: "上传文件", icon: "upload", action: triggerUpload },
+    { label: "新建文件夹", icon: "folder", action: createFolder },
+    { label: "刷新", icon: "refresh", action: () => bucket.value ? loadObjects() : loadBuckets() },
+  ]);
+}
+
 function getDisplayName(obj: ObjectItem): string {
   if (obj.isDir) {
     const parts = obj.key.replace(/\/$/, "").split("/");
@@ -254,7 +333,7 @@ function getFileIcon(obj: ObjectItem): string {
 </script>
 
 <template>
-  <div>
+  <div @contextmenu="onEmptyCtx">
     <div class="page-header">
       <button class="btn btn-ghost" @click="goBack">
         <AppIcon name="arrow-left" :size="16" /> 返回
@@ -275,7 +354,7 @@ function getFileIcon(obj: ObjectItem): string {
       <EmptyState v-if="buckets.length === 0" icon="bucket" title="暂无存储桶" description="当前账户下没有可用的 COS 存储桶" />
 
       <div v-else class="grid-list">
-        <div v-for="b in buckets" :key="b" class="grid-card" @click="enterBucket(b)">
+        <div v-for="b in buckets" :key="b" class="grid-card" @click="enterBucket(b)" @contextmenu="onBucketCtx($event, b)">
           <AppIcon name="bucket" :size="22" />
           <span class="grid-name">{{ b }}</span>
           <AppIcon name="chevron-right" :size="16" class="grid-arrow" />
@@ -329,6 +408,7 @@ function getFileIcon(obj: ObjectItem): string {
           :tabindex="obj.isDir ? 0 : undefined"
           @click="obj.isDir ? enterFolder(obj.key) : undefined"
           @keydown.enter="obj.isDir ? enterFolder(obj.key) : undefined"
+          @contextmenu="onFileCtx($event, obj)"
         >
           <div class="cell-name" role="cell">
             <AppIcon :name="getFileIcon(obj)" :size="18" class="file-icon" />
@@ -375,6 +455,23 @@ function getFileIcon(obj: ObjectItem): string {
     </template>
 
     <AppSkeleton v-if="loading" type="list" :lines="5" />
+
+    <Teleport to="body">
+      <div v-if="ctxMenu" class="ctx-overlay" @click="closeContextMenu" @contextmenu.prevent="closeContextMenu">
+        <div class="ctx-menu" :style="{ left: ctxMenuX + 'px', top: ctxMenuY + 'px' }" @click.stop>
+          <button
+            v-for="(item, idx) in ctxMenuItems"
+            :key="idx"
+            class="ctx-item"
+            :class="{ 'ctx-danger': item.danger }"
+            @click="item.action(); closeContextMenu()"
+          >
+            <AppIcon :name="item.icon" :size="15" />
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -543,5 +640,46 @@ function getFileIcon(obj: ObjectItem): string {
   .grid-arrow { transition: none; }
   .table-row { transition: none; }
   .cell-actions { transition: none; }
+}
+</style>
+
+<style>
+.ctx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+.ctx-menu {
+  position: fixed;
+  min-width: 180px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  z-index: 10000;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-family: var(--font-body);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+.ctx-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.ctx-item.ctx-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
 }
 </style>
