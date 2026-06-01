@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, provide } from "vue";
+import { ref, provide, onMounted } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
 import AppIcon from "./components/AppIcon.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import AppToast from "./components/AppToast.vue";
@@ -8,9 +9,14 @@ import { useTheme } from "./composables/useTheme";
 const { effectiveTheme, toggleTheme } = useTheme();
 const toastRef = ref<InstanceType<typeof AppToast> | null>(null);
 const dialogRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
+const appVersion = ref("");
 function toast(message: string, type: "error" | "success" | "info" = "error") {
   toastRef.value?.show(message, type);
 }
+
+onMounted(async () => {
+  try { appVersion.value = await getVersion(); } catch {}
+});
 
 provide("toast", toast);
 provide("dialog", { confirm: (msg: string) => dialogRef.value?.confirm(msg) ?? Promise.resolve(false), prompt: (msg: string, def?: string) => dialogRef.value?.prompt(msg, def) ?? Promise.resolve(null), confirmWithText: (msg: string, requiredText: string) => dialogRef.value?.confirmWithText(msg, requiredText) ?? Promise.resolve(false) });</script>
@@ -21,6 +27,7 @@ provide("dialog", { confirm: (msg: string) => dialogRef.value?.confirm(msg) ?? P
       <router-link to="/" class="app-brand">
         <img src="/app-icon.png" alt="T2Bucket" class="app-logo" />
         <span>T2Bucket</span>
+        <span v-if="appVersion" class="app-version">v{{ appVersion }}</span>
       </router-link>
       <div class="header-right">
         <button class="theme-toggle" @click="toggleTheme" :title="effectiveTheme() === 'dark' ? '切换亮色' : '切换暗色'">
@@ -124,6 +131,7 @@ body {
 }
 .app-brand:hover { color: var(--color-primary); }
 .app-logo { width: 26px; height: 26px; border-radius: 6px; }
+.app-version { font-size: 11px; font-weight: 400; color: var(--color-text-muted); letter-spacing: 0; }
 
 .app-main { max-width: 1100px; margin: 0 auto; padding: 32px 20px; }
 
