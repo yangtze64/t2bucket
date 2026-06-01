@@ -2,7 +2,7 @@
 
 ## 概述
 
-T2Bucket 是一个跨平台云存储桶管理桌面应用，基于 **Tauri 2 + Vue 3 + TypeScript**，支持 Windows / macOS / Linux。目前仅实现 **Tencent COS**，预留了 AWS S3 / Aliyun OSS / Huawei OBS / MinIO 的扩展位。
+T2Bucket 是一个跨平台云存储桶管理桌面应用，基于 **Tauri 2 + Vue 3 + TypeScript**，支持 Windows / macOS / Linux。已实现 **Tencent COS** 和 **AWS S3**（含中国区域），预留了 Aliyun OSS / Huawei OBS / MinIO 的扩展位。
 
 ## 技术栈
 
@@ -16,6 +16,7 @@ T2Bucket 是一个跨平台云存储桶管理桌面应用，基于 **Tauri 2 + V
 | Rust 加密 | aes-gcm + rand | 0.10 / 0.8 |
 | Rust HTTP | reqwest (blocking) | 0.12 |
 | Rust COS 签名 | hmac + sha1 | 0.12 / 0.10 |
+| Rust S3 签名 | hmac + sha2 (SigV4) | 0.12 / 0.10 |
 | 序列化 | serde + serde_json | 1.x |
 
 ## 项目结构
@@ -33,7 +34,7 @@ t2bucket/
 │   ├── types/index.ts            # TypeScript 类型 + providerLabels 映射
 │   ├── composables/useTheme.ts   # 主题切换（system/light/dark）
 │   ├── components/
-│   │   ├── AppIcon.vue           # SVG 图标组件（20+ 图标，Heroicons 风格）
+│   │   ├── AppIcon.vue           # SVG 图标组件（22+ 图标，Heroicons 风格）
 │   │   ├── AppSkeleton.vue       # 骨架屏（list/card/text 三种）
 │   │   ├── AppToast.vue          # Toast 通知组件（error/success/info）
 │   │   ├── ConfirmDialog.vue     # 自定义确认/输入弹窗（替代 confirm/prompt）
@@ -41,7 +42,7 @@ t2bucket/
 │   └── pages/
 │       ├── HomePage.vue          # 连接列表（增删改）
 │       ├── ConnectionForm.vue    # 新建/编辑连接（含表单校验）
-│       ├── BucketBrowser.vue     # 桶列表 + 文件浏览 + 操作
+│       ├── BucketBrowser.vue     # 桶列表 + 文件浏览 + 操作 + 右键菜单
 │       └── ObjectPreview.vue     # 文件预览（图片/文本/二进制）
 └── src-tauri/                    # Rust 后端
     ├── Cargo.toml                # Rust 依赖
@@ -53,8 +54,11 @@ t2bucket/
         ├── main.rs               # Rust 入口
         ├── lib.rs                # Tauri 命令注册（10 个命令）
         ├── store.rs              # 连接持久化（JSON 文件 + 加密）
-        ├── crypto.rs             # AES-256-GCM 加解密模块
-        └── cos.rs                # 腾讯云 COS API 客户端（V5 签名）
+        ├── crypto.rs             # AES-256-GCM 加解密模块（#[cfg(unix)] 条件编译）
+        └── providers/            # 存储服务商实现
+            ├── mod.rs            # StorageProvider trait 与工厂函数
+            ├── cos.rs            # 腾讯云 COS（V5 签名）
+            └── s3.rs             # AWS S3（SigV4 签名，含中国区域 endpoint）
 ```
 
 ## 路由表
@@ -76,12 +80,12 @@ t2bucket/
 | `add_connection` | name, secretId, secretKey, region, provider | `Result<String, String>` | 新增连接，后端校验必填 |
 | `update_connection` | id, name, secretId, secretKey, region, provider | `Result<(), String>` | 更新连接，后端校验必填 |
 | `delete_connection` | id | `Result<(), String>` | 删除连接 |
-| `test_cos_connection` | secretId, secretKey, region | `Result<Vec<String>>` | 直接用 AK/SK 测试连接 |
-| `list_cos_buckets` | connectionId | `Result<Vec<String>>` | 获取桶列表 |
-| `list_cos_objects` | connectionId, bucket, prefix?, delimiter? | `Result<Value>` | 列出对象（返回 prefixes + items） |
-| `get_cos_object` | connectionId, bucket, key | `Result<Vec<u8>>` | 下载对象内容 |
-| `put_cos_object` | connectionId, bucket, key, content | `Result<(), String>` | 上传对象 |
-| `delete_cos_object` | connectionId, bucket, key | `Result<(), String>` | 删除对象 |
+| `test_connection` | secretId, secretKey, region, provider | `Result<Vec<String>>` | 直接用 AK/SK 测试连接（支持 COS/S3） |
+| `list_buckets` | connectionId | `Result<Vec<String>>` | 获取桶列表（支持 COS/S3） |
+| `list_objects` | connectionId, bucket, prefix?, delimiter? | `Result<Value>` | 列出对象（返回 prefixes + items） |
+| `get_object` | connectionId, bucket, key | `Result<Vec<u8>>` | 下载对象内容 |
+| `put_object` | connectionId, bucket, key, content | `Result<(), String>` | 上传对象 |
+| `delete_object` | connectionId, bucket, key | `Result<(), String>` | 删除对象 |
 
 ## 命名约定
 
@@ -127,6 +131,16 @@ JSON 文件: ~/.t2bucket/connections.json
 3. `StringToSign` = `sha1\n{KeyTime}\n{SHA1(HttpString)}\n`
 4. `Signature` = HMAC-SHA1(SignKey, StringToSign)
 5. Authorization header 组装
+
+## S3 API 签名
+
+`s3.rs` 实现了 AWS Signature Version 4 签名算法（HMAC-SHA256）：
+1. `CanonicalRequest` = `{method}\n{path}\n{params}\n{headers}\n{signedHeaders}\n{payloadHash}`
+2. `StringToSign` = `AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{SHA256(CanonicalRequest)}`
+3. `SigningKey` = HMAC-SHA256(HMAC-SHA256(HMAC-SHA256(HMAC-SHA256("AWS4"+SecretKey, date), region), "s3"), "aws4_request")
+4. `Signature` = HMAC-SHA256(SigningKey, StringToSign)
+5. Authorization header: `AWS4-HMAC-SHA256 Credential={accessKey}/{scope}, SignedHeaders={signedHeaders}, Signature={signature}`
+6. 中国区域 endpoint 使用 `amazonaws.com.cn`，其他区域使用 `amazonaws.com`
 
 ## 表单校验模式
 
@@ -182,9 +196,18 @@ sudo rm -rf /Library/Caches/com.apple.iconservices.store && killall Dock
 
 ## 待扩展功能
 
-- [ ] AWS S3 / Aliyun OSS / MinIO 后端实现
+- [ ] Aliyun OSS / Huawei OBS / MinIO 后端实现
 - [ ] 系统 keyring 集成（替代当前的 `.key` 文件方案）
 - [ ] 文件拖拽上传
 - [ ] 批量操作（批量删除/下载）
-- [ ] 连接测试按钮
 - [ ] 搜索/过滤文件
+
+## 已完成功能（v0.1.1）
+
+- [x] AWS S3 后端实现（SigV4 签名，含中国区域 endpoint 适配）
+- [x] 连接测试按钮（支持 COS/S3）
+- [x] 右键上下文菜单（上传文件、新建文件夹、复制路径、预览、下载、删除）
+- [x] 返回按钮上下文感知导航（替代浏览器历史回退）
+- [x] 版本号显示在顶栏
+- [x] GitHub Actions CI/CD（多平台构建 + 自动发布 Draft Release）
+- [x] 跨平台兼容（crypto.rs #[cfg(unix)] 条件编译）

@@ -15,9 +15,11 @@ T2Bucket is a cross-platform cloud storage bucket management desktop application
 - 🔐 **Encrypted Credential Storage** — AK/SK encrypted with AES-256-GCM, keys stored locally
 - 🪣 **Bucket Management** — List, browse, upload, download, and delete objects
 - 👁️ **File Preview** — Preview images, text, and binary files inline
+- 🖱️ **Right-Click Context Menu** — Upload, create folder, copy path, preview, download, delete
 - 🌙 **Theme Switching** — System / Light / Dark mode with CSS variables
 - 🌍 **Multi-Provider** — Unified interface with factory pattern, easy to extend
 - 🖥️ **Cross-Platform** — Supports Windows, macOS, and Linux
+- 🔄 **CI/CD** — GitHub Actions multi-platform build with auto-release
 
 ### Supported Providers
 
@@ -111,9 +113,11 @@ T2Bucket 是一个跨平台云存储桶管理桌面应用，基于 **Tauri 2 + V
 - 🔐 **加密凭证存储** — AK/SK 使用 AES-256-GCM 加密，密钥本地保存
 - 🪣 **存储桶管理** — 列出、浏览、上传、下载和删除对象
 - 👁️ **文件预览** — 内联预览图片、文本和二进制文件
+- 🖱️ **右键上下文菜单** — 上传文件、新建文件夹、复制路径、预览、下载、删除
 - 🌙 **主题切换** — 跟随系统 / 浅色 / 深色模式，基于 CSS 变量
 - 🌍 **多云支持** — 统一接口 + 工厂模式，易于扩展
 - 🖥️ **跨平台** — 支持 Windows、macOS 和 Linux
+- 🔄 **CI/CD** — GitHub Actions 多平台构建 + 自动发布
 
 ### 支持的服务商
 
